@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {
   Config,
   Context,
@@ -20,8 +21,8 @@ import {
 // than its own address.
 export const apiOrigin = 'http://127.0.0.1:3876';
 const apiAuthority = '127.0.0.1:3876';
-// Relative to $XDG_CONFIG_HOME (or ~/.config): Electron's userData directory
-// for Super Productivity, where the app keeps the API token in a 0600 file.
+// Relative to Electron's appData directory, which differs per OS. The app
+// keeps the API token there in a file only the owner can read.
 const tokenPath = 'superProductivity/local-rest-api-token';
 const tunnelReadyTimeout = '15 seconds';
 
@@ -45,13 +46,23 @@ const missingTokenMessage = (location: string, detail: string): string =>
 
 const envToken = Config.option(Config.NonEmptyString('SP_TOKEN'));
 
-const localTokenFile = Effect.gen(function* () {
-  const configHome = yield* Config.option(
-    Config.NonEmptyString('XDG_CONFIG_HOME'),
-  );
-  const home = yield* Config.NonEmptyString('HOME');
-  return `${Option.getOrElse(configHome, () => `${home}/.config`)}/${tokenPath}`;
-});
+// Where the app on this machine writes the API token, following Electron's
+// app.getPath('appData') for the given platform.
+export const localTokenFile = (platform: NodeJS.Platform) =>
+  Effect.gen(function* () {
+    if (platform === 'win32') {
+      const appData = yield* Config.NonEmptyString('APPDATA');
+      return `${appData}/${tokenPath}`;
+    }
+    const home = yield* Config.NonEmptyString('HOME');
+    if (platform === 'darwin') {
+      return `${home}/Library/Application Support/${tokenPath}`;
+    }
+    const configHome = yield* Config.option(
+      Config.NonEmptyString('XDG_CONFIG_HOME'),
+    );
+    return `${Option.getOrElse(configHome, () => `${home}/.config`)}/${tokenPath}`;
+  });
 
 const readLocalToken = Effect.gen(function* () {
   const fromEnv = yield* envToken;
@@ -59,7 +70,7 @@ const readLocalToken = Effect.gen(function* () {
     return fromEnv.value;
   }
   const fs = yield* FileSystem.FileSystem;
-  const path = yield* localTokenFile;
+  const path = yield* localTokenFile(process.platform);
   const token = yield* fs.readFileString(path).pipe(
     Effect.mapError(
       (error) =>
@@ -108,15 +119,21 @@ const runRemote = Effect.fn('runRemote')(function* (
   return { stdout, stderr: stderr.trim(), exitCode: Number(exitCode) };
 }, Effect.scoped);
 
+// The remote OS is unknown, so try the Linux location first and fall back to
+// the macOS one. A missing token still reports the Linux path.
+const remoteTokenCommand = [
+  `f="\${XDG_CONFIG_HOME:-$HOME/.config}/${tokenPath}"`,
+  `m="$HOME/Library/Application Support/${tokenPath}"`,
+  'if [ ! -e "$f" ] && [ -e "$m" ]; then f="$m"; fi',
+  'cat "$f"',
+].join('; ');
+
 const readRemoteToken = Effect.fn('readRemoteToken')(function* (host: string) {
   const fromEnv = yield* envToken;
   if (Option.isSome(fromEnv)) {
     return fromEnv.value;
   }
-  const result = yield* runRemote(
-    host,
-    `cat "\${XDG_CONFIG_HOME:-$HOME/.config}/${tokenPath}"`,
-  ).pipe(
+  const result = yield* runRemote(host, remoteTokenCommand).pipe(
     Effect.mapError(
       (error) =>
         new SshTunnelFailed({
