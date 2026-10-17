@@ -1,4 +1,3 @@
-import process from 'node:process';
 import {
   Config,
   Context,
@@ -38,7 +37,7 @@ export class Connection extends Context.Service<
 >()('sp-cli/shared/Connection') {}
 
 export type ConnectionTarget =
-  | { readonly _tag: 'Local' }
+  | { readonly _tag: 'Local'; readonly platform: NodeJS.Platform }
   | { readonly _tag: 'Ssh'; readonly host: string };
 
 const missingTokenMessage = (location: string, detail: string): string =>
@@ -64,34 +63,35 @@ export const localTokenFile = (platform: NodeJS.Platform) =>
     return `${Option.getOrElse(configHome, () => `${home}/.config`)}/${tokenPath}`;
   });
 
-const readLocalToken = Effect.gen(function* () {
-  const fromEnv = yield* envToken;
-  if (Option.isSome(fromEnv)) {
-    return fromEnv.value;
-  }
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* localTokenFile(process.platform);
-  const token = yield* fs.readFileString(path).pipe(
-    Effect.mapError(
-      (error) =>
+const readLocalToken = (platform: NodeJS.Platform) =>
+  Effect.gen(function* () {
+    const fromEnv = yield* envToken;
+    if (Option.isSome(fromEnv)) {
+      return fromEnv.value;
+    }
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* localTokenFile(platform);
+    const token = yield* fs.readFileString(path).pipe(
+      Effect.mapError(
+        (error) =>
+          new TokenUnavailable({
+            message: missingTokenMessage(
+              'this machine',
+              `${path}: ${error.message}`,
+            ),
+          }),
+      ),
+    );
+    return token.trim();
+  }).pipe(
+    Effect.catchTag('ConfigError', (error) =>
+      Effect.fail(
         new TokenUnavailable({
-          message: missingTokenMessage(
-            'this machine',
-            `${path}: ${error.message}`,
-          ),
+          message: missingTokenMessage('this machine', error.message),
         }),
+      ),
     ),
   );
-  return token.trim();
-}).pipe(
-  Effect.catchTag('ConfigError', (error) =>
-    Effect.fail(
-      new TokenUnavailable({
-        message: missingTokenMessage('this machine', error.message),
-      }),
-    ),
-  ),
-);
 
 const collectText = (stream: Stream.Stream<Uint8Array, unknown>) =>
   stream.pipe(
@@ -121,7 +121,7 @@ const runRemote = Effect.fn('runRemote')(function* (
 
 // The remote OS is unknown, so try the Linux location first and fall back to
 // the macOS one. A missing token still reports the Linux path.
-const remoteTokenCommand = [
+export const remoteTokenCommand = [
   `f="\${XDG_CONFIG_HOME:-$HOME/.config}/${tokenPath}"`,
   `m="$HOME/Library/Application Support/${tokenPath}"`,
   'if [ ! -e "$f" ] && [ -e "$m" ]; then f="$m"; fi',
@@ -210,8 +210,8 @@ const openTunnel = Effect.fn('openTunnel')(function* (host: string) {
   return socket;
 });
 
-const local = Effect.gen(function* () {
-  const token = yield* readLocalToken;
+const local = Effect.fn('local')(function* (platform: NodeJS.Platform) {
+  const token = yield* readLocalToken(platform);
   return Connection.of({
     location: 'this machine',
     token,
@@ -249,5 +249,5 @@ export const connectionLayer = (
 > =>
   Layer.effect(
     Connection,
-    target._tag === 'Local' ? local : overSsh(target.host),
+    target._tag === 'Local' ? local(target.platform) : overSsh(target.host),
   );

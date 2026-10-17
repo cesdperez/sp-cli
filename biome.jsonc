@@ -21,12 +21,12 @@
     {
       // CLI process boundary: the entrypoint and its output module write
       // stdout/stderr, detect a TTY, and set the exit code through
-      // node:process, and the connection picks the token path from the OS.
-      // App code otherwise must not import Node built-ins.
+      // node:process, and root passes the OS to the connection layer. App
+      // code otherwise must not import Node built-ins.
       "includes": [
         "apps/cli/src/app/cli.ts",
         "apps/cli/src/app/output.ts",
-        "apps/cli/src/shared/connection.ts"
+        "apps/cli/src/app/root.ts"
       ],
       "linter": {
         "rules": {
