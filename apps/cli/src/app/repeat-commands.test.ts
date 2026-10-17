@@ -22,6 +22,14 @@ const ok = (data: unknown): Reply => ({
   payload: { ok: true, data },
 });
 
+const notFound: Reply = {
+  status: httpNotFound,
+  payload: {
+    ok: false,
+    error: { code: 'REPEAT_CFG_NOT_FOUND', message: 'Repeat config not found' },
+  },
+};
+
 const projects = [{ id: 'p1', title: 'Home' }];
 
 // Stands in for the app: answers by method and path and records each request,
@@ -63,6 +71,13 @@ const run = (...args: ReadonlyArray<string>) =>
     ),
   );
 
+const runOk = async (...args: ReadonlyArray<string>) => {
+  const result = await run(...args);
+  if (result._tag === 'Failure') {
+    throw new Error(`sp repeats ${args.join(' ')} failed: ${result.failure}`);
+  }
+};
+
 const realFetch = globalThis.fetch;
 
 let stdout: ReturnType<typeof spyOn>;
@@ -84,7 +99,7 @@ const lastRequest = () => sent.at(-1);
 describe('sp repeats list and get', () => {
   it('lists the repeat configs of a project named by title', async () => {
     replies = { ...replies, 'GET /task-repeat-cfgs': ok([{ id: 'r1' }]) };
-    await run('list', '--project', 'home');
+    await runOk('list', '--project', 'home');
     expect(lastRequest()).toEqual({
       method: 'GET',
       path: '/task-repeat-cfgs?projectId=p1',
@@ -94,12 +109,12 @@ describe('sp repeats list and get', () => {
   });
 
   it('lists all repeat configs without a filter', async () => {
-    await run('list');
+    await runOk('list');
     expect(lastRequest()?.path).toBe('/task-repeat-cfgs');
   });
 
   it('gets one repeat config by id', async () => {
-    await run('get', 'r/1');
+    await runOk('get', 'r/1');
     expect(lastRequest()).toMatchObject({
       method: 'GET',
       path: '/task-repeat-cfgs/r%2F1',
@@ -109,7 +124,7 @@ describe('sp repeats list and get', () => {
 
 describe('sp repeats add', () => {
   it('creates a weekday repeat from a task', async () => {
-    await run(
+    await runOk(
       'add',
       't1',
       '--schedule',
@@ -133,7 +148,7 @@ describe('sp repeats add', () => {
   });
 
   it('creates a custom schedule every second week', async () => {
-    await run('add', 't1', '--every', '2', '--on', 'tue,thu');
+    await runOk('add', 't1', '--every', '2', '--on', 'tue,thu');
     expect(lastRequest()?.body).toEqual({
       taskId: 't1',
       quickSetting: 'CUSTOM',
@@ -150,14 +165,14 @@ describe('sp repeats add', () => {
   });
 
   it('sends only the task id for the default daily schedule', async () => {
-    await run('add', 't1');
+    await runOk('add', 't1');
     expect(lastRequest()?.body).toEqual({ taskId: 't1' });
   });
 });
 
 describe('sp repeats update', () => {
   it('changes the schedule with its preset', async () => {
-    await run('update', 'r1', '--schedule', 'monthly-last-day');
+    await runOk('update', 'r1', '--schedule', 'monthly-last-day');
     expect(lastRequest()).toEqual({
       method: 'PATCH',
       path: '/task-repeat-cfgs/r1',
@@ -173,7 +188,7 @@ describe('sp repeats update', () => {
         quickSetting: 'YEARLY_CURRENT_DATE',
       }),
     };
-    await run('update', 'r1', '--start', '2027-03-01');
+    await runOk('update', 'r1', '--start', '2027-03-01');
     expect(sent.map(({ method, path }) => `${method} ${path}`)).toEqual([
       'GET /task-repeat-cfgs/r1',
       'PATCH /task-repeat-cfgs/r1',
@@ -185,7 +200,7 @@ describe('sp repeats update', () => {
   });
 
   it('turns skipping overdue instances off without touching the schedule', async () => {
-    await run('update', 'r1', '--no-skip-overdue');
+    await runOk('update', 'r1', '--no-skip-overdue');
     expect(lastRequest()?.body).toEqual({ skipOverdue: false });
   });
 });
@@ -195,7 +210,7 @@ describe('sp repeats pause, resume, and delete', () => {
     ['pause', { isPaused: true }],
     ['resume', { isPaused: false }],
   ])('%ss a repeat config', async (command, body) => {
-    await run(command, 'r1');
+    await runOk(command, 'r1');
     expect(lastRequest()).toEqual({
       method: 'PATCH',
       path: '/task-repeat-cfgs/r1',
@@ -204,7 +219,7 @@ describe('sp repeats pause, resume, and delete', () => {
   });
 
   it('stops repeating by deleting the repeat config', async () => {
-    await run('delete', 'r1');
+    await runOk('delete', 'r1');
     expect(lastRequest()).toEqual({
       method: 'DELETE',
       path: '/task-repeat-cfgs/r1',
@@ -223,28 +238,46 @@ describe('sp repeats errors', () => {
     ],
     [['add', 't1', '--every', '0', '--cycle', 'daily'], '1 to 1000'],
   ])('rejects %j before calling the app', async (args, message) => {
-    const result = await run(...args);
+    expect(await run(...args)).toMatchObject({
+      _tag: 'Failure',
+      failure: {
+        _tag: 'InvalidInput',
+        message: expect.stringContaining(message),
+      },
+    });
+    expect(sent).toEqual([]);
+  });
+
+  it('rejects a start day change when the config has no preset', async () => {
+    replies = { ...replies, 'GET /task-repeat-cfgs/r1': ok({ id: 'r1' }) };
+    const result = await run('update', 'r1', '--start', '2027-03-01');
     expect(result).toMatchObject({
       _tag: 'Failure',
-      failure: { _tag: 'InvalidInput' },
+      failure: {
+        _tag: 'InvalidInput',
+        message: expect.stringContaining('has no quickSetting'),
+      },
     });
-    expect(JSON.stringify(result)).toContain(message);
-    expect(sent).toEqual([]);
+    expect(sent.map(({ method }) => method)).toEqual(['GET']);
+  });
+
+  it('stops when the config to change does not exist', async () => {
+    replies = {
+      ...replies,
+      'GET /task-repeat-cfgs/nope': notFound,
+    };
+    const result = await run('update', 'nope', '--start', '2027-03-01');
+    expect(result).toMatchObject({
+      _tag: 'Failure',
+      failure: { _tag: 'ApiError', code: 'REPEAT_CFG_NOT_FOUND' },
+    });
+    expect(sent.map(({ method }) => method)).toEqual(['GET']);
   });
 
   it('passes the app error through', async () => {
     replies = {
       ...replies,
-      'PATCH /task-repeat-cfgs/nope': {
-        status: httpNotFound,
-        payload: {
-          ok: false,
-          error: {
-            code: 'REPEAT_CFG_NOT_FOUND',
-            message: 'Repeat config not found',
-          },
-        },
-      },
+      'PATCH /task-repeat-cfgs/nope': notFound,
     };
     const result = await run('pause', 'nope');
     expect(result).toMatchObject({

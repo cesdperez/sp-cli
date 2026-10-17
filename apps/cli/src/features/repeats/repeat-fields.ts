@@ -3,7 +3,7 @@ import { InvalidInput } from '../../shared/errors/errors';
 
 // The repeat dialog's presets. Each one derives its cycle and weekdays from
 // the start date, e.g. `weekly` repeats on the start date's weekday.
-export const presets = {
+const presets = {
   daily: 'DAILY',
   weekdays: 'MONDAY_TO_FRIDAY',
   weekly: 'WEEKLY_CURRENT_WEEKDAY',
@@ -81,7 +81,7 @@ const matchWeekday = (token: string): Weekday | undefined =>
   );
 
 // Accepts mon or monday, comma-separated or repeated, in any case.
-export const parseWeekdays = (
+const parseWeekdays = (
   values: ReadonlyArray<string>,
 ): Result.Result<ReadonlySet<Weekday>, InvalidInput> => {
   const tokens = values
