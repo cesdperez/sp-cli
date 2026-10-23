@@ -77,3 +77,22 @@ export const withQuickSetting = Effect.fn('withQuickSetting')(function* (
   );
   return { ...fields, quickSetting };
 });
+
+const MonthlyLastDay = Schema.Struct({ monthlyLastDay: Schema.Literal(true) });
+
+// The app drops `monthlyLastDay` for every schedule but its own preset, and
+// the API can't set it, so a new interval alone would move a month-end repeat
+// to the start date's day.
+export const guardMonthlyLastDay = Effect.fn('guardMonthlyLastDay')(function* (
+  id: string,
+  fields: RepeatFields,
+) {
+  if (fields.quickSetting !== 'CUSTOM' || 'repeatCycle' in fields) {
+    return;
+  }
+  if (Schema.is(MonthlyLastDay)(yield* getRepeat(id))) {
+    return yield* new InvalidInput({
+      message: `repeat config ${id} repeats on the last day of the month, and the API can't keep that with a new --every; change the interval in the app, or add --cycle monthly to repeat on the start date's day instead`,
+    });
+  }
+});

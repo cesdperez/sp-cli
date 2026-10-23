@@ -261,6 +261,27 @@ describe('sp repeats errors', () => {
     expect(sent.map(({ method }) => method)).toEqual(['GET']);
   });
 
+  it('rejects a new interval alone on a last-day-of-month repeat', async () => {
+    replies = {
+      ...replies,
+      'GET /task-repeat-cfgs/r1': ok({
+        id: 'r1',
+        quickSetting: 'MONTHLY_LAST_DAY',
+        monthlyLastDay: true,
+        startDate: '2026-11-30',
+      }),
+    };
+    const result = await run('update', 'r1', '--every', '2');
+    expect(result).toMatchObject({
+      _tag: 'Failure',
+      failure: {
+        _tag: 'InvalidInput',
+        message: expect.stringContaining('last day of the month'),
+      },
+    });
+    expect(sent.map(({ method }) => method)).toEqual(['GET']);
+  });
+
   it('stops when the config to change does not exist', async () => {
     replies = {
       ...replies,

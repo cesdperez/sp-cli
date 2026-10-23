@@ -13,6 +13,7 @@ import {
   createRepeat,
   deleteRepeat,
   getRepeat,
+  guardMonthlyLastDay,
   listRepeats,
   updateRepeat,
   withQuickSetting,
@@ -171,6 +172,7 @@ const update = Command.make(
             'nothing to change; pass a schedule option or --skip-overdue (sp repeats update --help)',
           );
         }
+        yield* guardMonthlyLastDay(id, fields);
         return yield* updateRepeat(id, yield* withQuickSetting(id, fields));
       }),
     ),
