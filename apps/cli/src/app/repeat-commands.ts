@@ -26,7 +26,7 @@ import {
   optionalString,
   repeatedString,
   resolveOptional,
-} from './command-input';
+} from './command-inputs';
 import { runApi } from './root';
 
 const repeatId = Argument.String('id').pipe(

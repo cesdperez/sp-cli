@@ -1,7 +1,13 @@
 import { Clock, Effect, Option, Result } from 'effect';
-import { Flag } from 'effect/cli';
+import { Argument, Flag } from 'effect/cli';
 import { resolveWorkContextId } from '../features/work-contexts/work-contexts';
 import { InvalidInput } from '../shared/errors/errors';
+
+// Arguments, flags, and input helpers that several commands share.
+
+export const taskId = Argument.String('id').pipe(
+  Argument.withDescription('Task id'),
+);
 
 export const optionalString = (name: string, description: string) =>
   Flag.String(name).pipe(Flag.withDescription(description), Flag.optional);

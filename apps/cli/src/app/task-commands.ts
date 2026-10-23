@@ -24,10 +24,10 @@ import {
   optionalString,
   repeatedString,
   resolveOptional,
-} from './command-input';
+  taskId,
+} from './command-inputs';
 import { runApi } from './root';
-
-const taskId = Argument.String('id').pipe(Argument.withDescription('Task id'));
+import { time } from './task-time-command';
 
 // `--notes -` reads the notes from stdin, which keeps long Markdown out of
 // shell quoting.
@@ -329,6 +329,7 @@ export const tasks = Command.make('tasks').pipe(
     update,
     remove,
     start,
+    time,
     archive,
     restore,
   ]),
