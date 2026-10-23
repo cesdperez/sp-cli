@@ -92,7 +92,7 @@ export const guardMonthlyLastDay = Effect.fn('guardMonthlyLastDay')(function* (
   }
   if (Schema.is(MonthlyLastDay)(yield* getRepeat(id))) {
     return yield* new InvalidInput({
-      message: `repeat config ${id} repeats on the last day of the month, and the API can't keep that with a new --every; change the interval in the app, or add --cycle monthly to repeat on the start date's day instead`,
+      message: `repeat config ${id} repeats on the last day of the month, which a new --every would drop; add --cycle monthly to repeat on the start date's day instead`,
     });
   }
 });
